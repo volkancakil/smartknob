@@ -1,4 +1,4 @@
-#include <SPIFFS.h>
+#include <FFat.h>
 
 #include "pb_decode.h"
 #include "pb_encode.h"
@@ -21,12 +21,12 @@ Configuration::~Configuration() {
 
 bool Configuration::loadFromDisk() {
     SemaphoreGuard lock(mutex_);
-    if (!SPIFFS.begin(true)) {
-        log("Failed to mount SPIFFS");
+    FatGuard fatGuard(logger_);
+    if (!fatGuard.mounted_) {
         return false;
     }
 
-    File f = SPIFFS.open(CONFIG_PATH);
+    File f = FFat.open(CONFIG_PATH);
     if (!f) {
         log("Failed to read config file");
         return false;
@@ -40,6 +40,7 @@ bool Configuration::loadFromDisk() {
         char buf[200];
         snprintf(buf, sizeof(buf), "Decoding failed: %s", PB_GET_ERROR(&stream));
         log(buf);
+        pb_buffer_ = {};
         return false;
     }
 
@@ -47,6 +48,7 @@ bool Configuration::loadFromDisk() {
         char buf[200];
         snprintf(buf, sizeof(buf), "Invalid config version. Expected %u, received %u", PERSISTENT_CONFIGURATION_VERSION, pb_buffer_.version);
         log(buf);
+        pb_buffer_ = {};
         return false;
     }
     loaded_ = true;
@@ -77,7 +79,11 @@ bool Configuration::saveToDisk() {
         return false;
     }
 
-    File f = SPIFFS.open(CONFIG_PATH, FILE_WRITE);
+    FatGuard fatGuard(logger_);
+    if (!fatGuard.mounted_) {
+        return false;
+    }
+    File f = FFat.open(CONFIG_PATH, FILE_WRITE);
     if (!f) {
         log("Failed to read config file");
         return false;
@@ -110,6 +116,15 @@ bool Configuration::setMotorCalibrationAndSave(PB_MotorCalibration& motor_calibr
         SemaphoreGuard lock(mutex_);
         pb_buffer_.motor = motor_calibration;
         pb_buffer_.has_motor = true;
+    }
+    return saveToDisk();
+}
+
+bool Configuration::setStrainCalibrationAndSave(PB_StrainCalibration& strain_calibration) {
+    {
+        SemaphoreGuard lock(mutex_);
+        pb_buffer_.strain = strain_calibration;
+        pb_buffer_.has_strain = true;
     }
     return saveToDisk();
 }
